@@ -1,42 +1,86 @@
 # PMBAppBackEnd.py
-from flask import Flask, request, jsonify
-
-print("🚀 Running the latest app.py version with 5 initial patients")
+import json
+import queue
+import random
+import threading
+import time
+from flask import Flask, Response, render_template
 
 app = Flask(__name__)
 
-vitals_data = []
+# Event broadcaster to handle Server-Sent Events for multiple clients
+class EventBroadcaster:
+    def __init__(self):
+        self.listeners = []          # List of queues for each client
+        self.lock = threading.Lock() # Lock to synchronize access to listeners
 
-@app.route("/", methods=["GET"])
-def home():
-    return "Vitals API is running!"
+    def listen(self):
+        """Register a new client and return its queue."""
+        q = queue.Queue(maxsize=5)  # each client has its own queue (thread-safe)
+        with self.lock:
+            self.listeners.append(q)
+        return q
 
-@app.route("/vitals", methods=["POST"])
-def post_vitals():
-    data = request.json
-    vitals_data.append(data)
-    print("Received:", data)
-    return jsonify({"status": "ok", "alert": data.get("pulse", 0) > 120})
-     
-@app.route("/vitals", methods=["GET"])
-def get_vitals():
-    return jsonify(vitals_data)
+    def broadcast(self, message):
+        """Put a new message into all client queues. Remove closed connections."""
+        with self.lock:
+            for q in list(self.listeners):  # iterate over a copy of the list
+                try:
+                    q.put_nowait(message)   # send message to client queue
+                except queue.Full:
+                    # If the queue is full, the client might be slow or disconnected.
+                    # Remove it to free up resources.
+                    self.listeners.remove(q)
 
-# Generates 5 Patients with random vitals 
-def generate_fake_vitals(patient_id):
-    import random
-    return {
-        "patient_id": patient_id,
-        "pulse": random.randint(60, 140),
-        "spo2": random.randint(90, 100),
-        "bp": f"{random.randint(100, 140)}/{random.randint(60, 90)}"
-    }
+broadcaster = EventBroadcaster()
 
-# Add 5 fake patients at startup
-for i in range(5):
-    fake = generate_fake_vitals(f"patient_{i+1}")
-    vitals_data.append(fake)
-    print("✅ Spawned:", fake)
+def generate_data():
+    """Background thread function to generate random vitals for patients continuously."""
+    while True:
+        for patient_id in range(1, 6):  # simulate 5 patients with IDs 1-5
+            # Generate random vitals
+            pulse = random.randint(60, 100)                 # Pulse (bpm)
+            systolic = random.randint(110, 140)             # Systolic BP
+            diastolic = random.randint(70, 90)              # Diastolic BP
+            spo2 = random.randint(90, 100)                  # SpO2 (%)
+            data = {
+                "id": patient_id,
+                "pulse": pulse,
+                "bp": f"{systolic}/{diastolic}",
+                "spo2": spo2
+            }
+            # Broadcast the new vitals as a JSON string to all listeners
+            broadcaster.broadcast(json.dumps(data))
+            time.sleep(1)  # wait 1 second before generating next reading (per patient)
 
-if __name__ == "__main__":
-    app.run(debug=True, use_reloader=False, port=8080)
+@app.route('/stream')
+def stream():
+    """SSE endpoint: streams out live vitals data to any client listening."""
+    def event_stream():
+        # Each client gets a unique Queue to listen for events
+        q = broadcaster.listen()
+        try:
+            # Stream indefinitely until client disconnects
+            while True:
+                data = q.get()  # block until an event is available
+                # Yield the data in SSE format (note the double newline)
+                yield f"data: {data}\n\n"
+        finally:
+            # If the client disconnects, remove its queue from the listeners
+            with broadcaster.lock:
+                if q in broadcaster.listeners:
+                    broadcaster.listeners.remove(q)
+
+    # Return a streaming response with the right content type and no caching
+    return Response(event_stream(), content_type='text/event-stream', headers={"Cache-Control": "no-cache"})
+
+@app.route('/')
+def index():
+    """Serves the main page with patient vitals dashboard."""
+    return render_template('index.html')  # index.html will connect to the SSE stream
+
+if __name__ == '__main__':
+    # Start the background thread to generate data, as a daemon so it exits on app shutdown
+    threading.Thread(target=generate_data, daemon=True).start()
+    # Run the Flask development server on port 8080
+    app.run(host='0.0.0.0', port=8080)
