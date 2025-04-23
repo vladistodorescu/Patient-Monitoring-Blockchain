@@ -1,0 +1,76 @@
+### PMBAppFrontend.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Patient Vitals Monitor</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2em; }
+    .patient { border: 1px solid #ccc; padding: 1em; margin: 1em 0; width: 300px; }
+    .patient h2 { margin-top: 0; }
+  </style>
+</head>
+<body>
+  <h1>Real-Time Patient Vitals</h1>
+
+  <!-- Patient blocks -->
+  <div id="patients">
+    <!-- Each patient has a container with their vitals. Initially, values are blank. -->
+    <div class="patient" id="patient-1">
+      <h2>Patient 1</h2>
+      <p>Pulse: <span id="patient-1-pulse">--</span> bpm</p>
+      <p>Blood Pressure: <span id="patient-1-bp">--/--</span> mmHg</p>
+      <p>SpO₂: <span id="patient-1-spo2">--</span>%</p>
+    </div>
+    <div class="patient" id="patient-2">
+      <h2>Patient 2</h2>
+      <p>Pulse: <span id="patient-2-pulse">--</span> bpm</p>
+      <p>Blood Pressure: <span id="patient-2-bp">--/--</span> mmHg</p>
+      <p>SpO₂: <span id="patient-2-spo2">--</span>%</p>
+    </div>
+    <div class="patient" id="patient-3">
+      <h2>Patient 3</h2>
+      <p>Pulse: <span id="patient-3-pulse">--</span> bpm</p>
+      <p>Blood Pressure: <span id="patient-3-bp">--/--</span> mmHg</p>
+      <p>SpO₂: <span id="patient-3-spo2">--</span>%</p>
+    </div>
+    <div class="patient" id="patient-4">
+      <h2>Patient 4</h2>
+      <p>Pulse: <span id="patient-4-pulse">--</span> bpm</p>
+      <p>Blood Pressure: <span id="patient-4-bp">--/--</span> mmHg</p>
+      <p>SpO₂: <span id="patient-4-spo2">--</span>%</p>
+    </div>
+    <div class="patient" id="patient-5">
+      <h2>Patient 5</h2>
+      <p>Pulse: <span id="patient-5-pulse">--</span> bpm</p>
+      <p>Blood Pressure: <span id="patient-5-bp">--/--</span> mmHg</p>
+      <p>SpO₂: <span id="patient-5-spo2">--</span>%</p>
+    </div>
+  </div>
+
+  <!-- JavaScript to connect to SSE and update the page -->
+  <script>
+    // Connect to the SSE stream
+    const source = new EventSource("/stream");
+
+    // When a new message arrives, update the corresponding patient's data
+    source.onmessage = function(event) {
+      try {
+        const data = JSON.parse(event.data);
+        // Update the page elements with new vitals
+        document.getElementById(`patient-${data.id}-pulse`).textContent = data.pulse;
+        document.getElementById(`patient-${data.id}-bp`).textContent = data.bp;
+        document.getElementById(`patient-${data.id}-spo2`).textContent = data.spo2;
+      } catch (e) {
+        console.error("Error parsing SSE data:", e);
+      }
+    };
+
+    // Optional: handle errors (e.g., loss of connection)
+    source.onerror = function(err) {
+      console.error("EventSource failed:", err);
+    };
+  </script>
+</body>
+</html>
+
