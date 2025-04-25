@@ -7,35 +7,34 @@ import time
 
 from flask import Flask, Response, render_template, jsonify
 from DatabaseAppPMB import get_db, close_db, init_db
-from DeviceAPI import device_bp        # your device‐integration Blueprint
+from DeviceAPI import init_app
 from Broadcaster import broadcaster    # the shared EventBroadcaster instance
 
 app = Flask(__name__)
 app.teardown_appcontext(close_db)
 
 # 1) Register the device‐integration routes on /api/devices
-app.register_blueprint(device_bp, url_prefix='/api/devices')
+init_app(app)
 
 # 2) SSE endpoint: clients connect here to receive live JSON messages
 @app.route('/stream')
 def stream():
+    print("🔗 /stream requested")   # <<== log subscription
+    q = broadcaster.listen()
     def event_stream():
-        q = broadcaster.listen()
+        print("   🎧 client subscribed, starting event_stream")  # <<==
         try:
             while True:
-                msg = q.get()                     # block until new message
-                yield f"data: {msg}\n\n"          # SSE format
+                msg = q.get()
+                yield f"data: {msg}\n\n"
         finally:
-            # on client disconnect, remove its queue
+            print("   🛑 client disconnected")  # <<==
             with broadcaster.lock:
                 if q in broadcaster.listeners:
                     broadcaster.listeners.remove(q)
-
-    return Response(
-        event_stream(),
-        content_type='text/event-stream',
-        headers={'Cache-Control': 'no-cache'}
-    )
+    return Response(event_stream(),
+                    content_type='text/event-stream',
+                    headers={'Cache-Control': 'no-cache'})
 
 # 3) Optional: return the full history of vitals readings
 @app.route('/vitals', methods=['GET'])
@@ -93,9 +92,8 @@ if __name__ == '__main__':
     with app.app_context():
         init_db()
 
-    # Start simulator (comment out if using real device ingestion only)
-    threading.Thread(target=simulate_loop, daemon=True).start()
+    # Start simulator with random numbers (comment out if using real device ingestion only)
+    # threading.Thread(target=simulate_loop, daemon=True).start()
 
     # Run on port 8080, listening on all interfaces
     app.run(host='0.0.0.0', port=8080)
-
