@@ -1,86 +1,101 @@
-# PMBAppBackEnd.py
+#BackendPMBApp.py
 import json
 import queue
 import random
 import threading
 import time
-from flask import Flask, Response, render_template
+
+from flask import Flask, Response, render_template, jsonify
+from DatabaseAppPMB import get_db, close_db, init_db
+from DeviceAPI import device_bp        # your device‐integration Blueprint
+from Broadcaster import broadcaster    # the shared EventBroadcaster instance
 
 app = Flask(__name__)
+app.teardown_appcontext(close_db)
 
-# Event broadcaster to handle Server-Sent Events for multiple clients
-class EventBroadcaster:
-    def __init__(self):
-        self.listeners = []          # List of queues for each client
-        self.lock = threading.Lock() # Lock to synchronize access to listeners
+# 1) Register the device‐integration routes on /api/devices
+app.register_blueprint(device_bp, url_prefix='/api/devices')
 
-    def listen(self):
-        """Register a new client and return its queue."""
-        q = queue.Queue(maxsize=5)  # each client has its own queue (thread-safe)
-        with self.lock:
-            self.listeners.append(q)
-        return q
-
-    def broadcast(self, message):
-        """Put a new message into all client queues. Remove closed connections."""
-        with self.lock:
-            for q in list(self.listeners):  # iterate over a copy of the list
-                try:
-                    q.put_nowait(message)   # send message to client queue
-                except queue.Full:
-                    # If the queue is full, the client might be slow or disconnected.
-                    # Remove it to free up resources.
-                    self.listeners.remove(q)
-
-broadcaster = EventBroadcaster()
-
-def generate_data():
-    """Background thread function to generate random vitals for patients continuously."""
-    while True:
-        for patient_id in range(1, 6):  # simulate 5 patients with IDs 1-5
-            # Generate random vitals
-            pulse = random.randint(60, 100)                 # Pulse (bpm)
-            systolic = random.randint(110, 140)             # Systolic BP
-            diastolic = random.randint(70, 90)              # Diastolic BP
-            spo2 = random.randint(90, 100)                  # SpO2 (%)
-            data = {
-                "id": patient_id,
-                "pulse": pulse,
-                "bp": f"{systolic}/{diastolic}",
-                "spo2": spo2
-            }
-            # Broadcast the new vitals as a JSON string to all listeners
-            broadcaster.broadcast(json.dumps(data))
-            time.sleep(1)  # wait 1 second before generating next reading (per patient)
-
+# 2) SSE endpoint: clients connect here to receive live JSON messages
 @app.route('/stream')
 def stream():
-    """SSE endpoint: streams out live vitals data to any client listening."""
     def event_stream():
-        # Each client gets a unique Queue to listen for events
         q = broadcaster.listen()
         try:
-            # Stream indefinitely until client disconnects
             while True:
-                data = q.get()  # block until an event is available
-                # Yield the data in SSE format (note the double newline)
-                yield f"data: {data}\n\n"
+                msg = q.get()                     # block until new message
+                yield f"data: {msg}\n\n"          # SSE format
         finally:
-            # If the client disconnects, remove its queue from the listeners
+            # on client disconnect, remove its queue
             with broadcaster.lock:
                 if q in broadcaster.listeners:
                     broadcaster.listeners.remove(q)
 
-    # Return a streaming response with the right content type and no caching
-    return Response(event_stream(), content_type='text/event-stream', headers={"Cache-Control": "no-cache"})
+    return Response(
+        event_stream(),
+        content_type='text/event-stream',
+        headers={'Cache-Control': 'no-cache'}
+    )
 
+# 3) Optional: return the full history of vitals readings
+@app.route('/vitals', methods=['GET'])
+def get_vitals():
+    conn = get_db()
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT patient_id AS id, timestamp, pulse, bp, spo2
+              FROM vitals
+             ORDER BY timestamp;
+        """)
+        rows = cur.fetchall()
+    return jsonify(rows)
+
+# 4) Dashboard page
 @app.route('/')
 def index():
-    """Serves the main page with patient vitals dashboard."""
-    return render_template('index.html')  # index.html will connect to the SSE stream
+    return render_template('index.html')
+
+# 5) Simulator to generate data if no real devices are hooked up
+def simulate_loop():
+    with app.app_context():
+        while True:
+            for pid in range(1, 6):
+                pulse = random.randint(60, 100)
+                sys   = random.randint(110, 140)
+                dia   = random.randint(70,  90)
+                spo2  = random.randint(90, 100)
+                bp    = f"{sys}/{dia}"
+
+                # store in DB and get timestamp
+                conn = get_db()
+                with conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "INSERT INTO vitals(patient_id,pulse,bp,spo2) "
+                            "VALUES (%s,%s,%s,%s) RETURNING timestamp;",
+                            (pid, pulse, bp, spo2)
+                        )
+                        ts = cur.fetchone()['timestamp']
+
+                # broadcast to all SSE clients
+                payload = json.dumps({
+                    "id":        pid,
+                    "pulse":     pulse,
+                    "bp":        bp,
+                    "spo2":      spo2,
+                    "timestamp": ts.isoformat()
+                })
+                broadcaster.broadcast(payload)
+                time.sleep(1)
 
 if __name__ == '__main__':
-    # Start the background thread to generate data, as a daemon so it exits on app shutdown
-    threading.Thread(target=generate_data, daemon=True).start()
-    # Run the Flask development server on port 8080
+    # Initialize DB and seed patients
+    with app.app_context():
+        init_db()
+
+    # Start simulator (comment out if using real device ingestion only)
+    threading.Thread(target=simulate_loop, daemon=True).start()
+
+    # Run on port 8080, listening on all interfaces
     app.run(host='0.0.0.0', port=8080)
+
