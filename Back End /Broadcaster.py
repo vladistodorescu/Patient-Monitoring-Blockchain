@@ -1,4 +1,4 @@
-# Brodcaster.py V5
+# Broadcaster.py V6
 import queue
 import threading
 
