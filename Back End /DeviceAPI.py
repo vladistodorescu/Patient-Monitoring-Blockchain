@@ -1,7 +1,10 @@
-# DeviceAPI.py
+# DeviceAPI.py V6
 import json
 import threading
 import paho.mqtt.client as mqtt
+import os
+import time
+
 from flask import Blueprint, request, jsonify
 from DatabaseAppPMB import get_db
 from Broadcaster import broadcaster
@@ -17,8 +20,8 @@ def ingest_fhir_observation():
     return jsonify(status="ok"), 201
 
 # MQTT setup (unchanged)
-MQTT_BROKER = 'localhost'
-MQTT_PORT   = 1883
+MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
+MQTT_PORT   = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_TOPIC  = 'devices/+/vitals'
 
 def _on_connect(client, userdata, flags, rc):
@@ -43,7 +46,16 @@ def start_mqtt():
     client = mqtt.Client()
     client.on_connect = _on_connect
     client.on_message = _on_message
-    client.connect(MQTT_BROKER, MQTT_PORT)
+
+    # retry until broker is up
+    while True:
+        try:
+            client.connect(MQTT_BROKER, MQTT_PORT)
+            break
+        except ConnectionRefusedError:
+            print("❌ MQTT broker not ready, retrying in 1s…")
+            time.sleep(1)
+
     threading.Thread(target=client.loop_forever, daemon=True).start()
     
 def _store_and_emit(patient_id, pulse, spo2, bp_str):
@@ -51,10 +63,10 @@ def _store_and_emit(patient_id, pulse, spo2, bp_str):
     Persist into Postgres *and* broadcast via SSE.
     We import the Flask `app` here so we can push its context.
     """
-    # delayed import 
+    # delayed import to avoid circular dependency at module load time
     from BackendAppPMB import app
 
-    # 1) push Flask app context so get_db() works:
+    # 1) push the Flask app context so get_db() (which uses flask.g) works:
     with app.app_context():
         conn = get_db()
         with conn:
