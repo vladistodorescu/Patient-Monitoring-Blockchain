@@ -1,4 +1,4 @@
-## DatabaseAppPMB.py
+# DatabaseAppPMB.py for V6
 import os
 import psycopg2
 import psycopg2.extras
@@ -7,7 +7,7 @@ from flask import g
 # connection string
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://admin:YourVeryStrongPassword@localhost/v3db"
+    "postgresql://admin:YourVeryStrongPassword@localhost:5433/v3db"
 )
 
 def get_db():
