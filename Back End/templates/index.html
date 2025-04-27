@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Poppins:wght@500;600&display=swap" rel="stylesheet">
+  <title>Live Patient Vitals</title>
+  <style>
+    :root {
+      --primary-color: #3498db;
+      --alert-color: #e74c3c;
+      --success-color: #27ae60;
+      --border-color: #dcdde1;
+      --background-light: #f5f6fa;
+      --text-primary: #2d3436;
+      --text-secondary: #636e72;
+    }
+    
+    body {
+      font-family: 'Roboto', sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: var(--background-light);
+      color: var(--text-primary);
+    }
+    
+    h1 {
+      margin-bottom: 20px;
+      font-family: 'Poppins', sans-serif;
+      color: #2c3e50;
+      font-weight: 600;
+      text-align: center;
+    }
+    
+    #patients {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      justify-content: center;
+    }
+    
+    .patient {
+      border: 1px solid var(--border-color);
+      padding: 15px;
+      width: 230px;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    
+    .patient:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+    
+    .patient h2 {
+      margin: 0 0 15px 0;
+      font-family: 'Poppins', sans-serif;
+      font-size: 1.2em;
+      font-weight: 600;
+      color: var(--primary-color);
+      border-bottom: 2px solid #f0f0f0;
+      padding-bottom: 8px;
+    }
+    
+    .patient p {
+      margin: 10px 0;
+      display: flex;
+      justify-content: space-between;
+      font-size: 15px;
+    }
+    
+    .vital-label {
+      font-weight: 500;
+    }
+    
+    .vital-value {
+      font-weight: 400;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: #f7f7f7;
+      transition: background-color 0.3s;
+      cursor: pointer;
+      position: relative;
+    }
+    
+    .vital-value:hover {
+      background: #eaeaea;
+    }
+    
+    .chart-container {
+      width: 100%;
+      height: 120px;
+      position: relative;
+      margin-top: 15px;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    
+    .timestamp {
+      display: block;
+      color: var(--text-secondary);
+      font-size: 12px;
+      text-align: right;
+      margin-top: 8px;
+      font-style: italic;
+    }
+    
+    .alert {
+      color: var(--alert-color);
+      background-color: rgba(231, 76, 60, 0.1) !important;
+      font-weight: 500;
+    }
+    
+    .normal {
+      color: var(--success-color);
+    }
+    
+    /* Tooltip styles */
+    .tooltip {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      pointer-events: none;
+      z-index: 100;
+      opacity: 0;
+      transition: opacity 0.2s;
+      top: -30px;
+      left: 50%;
+      transform: translateX(-50%);
+      white-space: nowrap;
+    }
+    
+    .tooltip:after {
+      content: '';
+      position: absolute;
+      bottom: -5px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 5px solid rgba(0, 0, 0, 0.8);
+    }
+    
+    .vital-value:hover .tooltip {
+      opacity: 1;
+    }
+    
+    /* Data point tooltips for chart */
+    .chart-tooltip {
+      background: rgba(0, 0, 0, 0.75);
+      color: #fff;
+      border-radius: 4px;
+      padding: 5px 8px;
+      font-size: 12px;
+      pointer-events: none;
+      position: absolute;
+      display: none;
+      z-index: 100;
+    }
+  </style>
+</head>
+<body>
+  <h1>Real-Time Patient Vitals</h1>
+  <div id="patients"></div>
+  
+  <!-- Tooltip element for chart hover -->
+  <div id="chart-tooltip" class="chart-tooltip"></div>
+
+  <script>
+    const container = document.getElementById('patients');
+    const charts = {}; // store Chart.js instances
+    const pulseData = {}; // store pulse history per patient
+    const pulseTimestamps = {}; // store timestamps for each pulse reading
+    const chartTooltip = document.getElementById('chart-tooltip');
+    
+    // Define normal ranges for vitals
+    const normalRanges = {
+      pulse: { min: 60, max: 100 },
+      systolic: { min: 90, max: 140 },
+      diastolic: { min: 60, max: 90 },
+      spo2: { min: 95, max: 100 }
+    };
+    
+    // Check if a vital is outside normal range
+    function checkVitalStatus(type, value) {
+      if (type === 'bp') {
+        const [systolic, diastolic] = value.split('/').map(Number);
+        return systolic < normalRanges.systolic.min || 
+               systolic > normalRanges.systolic.max ||
+               diastolic < normalRanges.diastolic.min ||
+               diastolic > normalRanges.diastolic.max;
+      } else if (type === 'pulse') {
+        return value < normalRanges.pulse.min || value > normalRanges.pulse.max;
+      } else if (type === 'spo2') {
+        return value < normalRanges.spo2.min;
+      }
+      return false;
+    }
+    
+    // Format timestamp
+    function formatTime(date) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    // build placeholders for 5 patients
+    for (let i = 1; i <= 5; i++) {
+      const div = document.createElement('div');
+      div.className = 'patient';
+      div.id = `p${i}`;
+      
+      div.innerHTML = `
+        <h2>Patient ${i}</h2>
+        <p>
+          <span class="vital-label">Pulse:</span> 
+          <span id="p${i}-pulse" class="vital-value">--
+            <span class="tooltip">Loading pulse data...</span>
+          </span>
+        </p>
+        <p>
+          <span class="vital-label">BP:</span>
+          <span id="p${i}-bp" class="vital-value">--/--
+            <span class="tooltip">Loading blood pressure data...</span>
+          </span>
+        </p>
+        <p>
+          <span class="vital-label">SpO₂:</span>
+          <span id="p${i}-spo2" class="vital-value">--%
+            <span class="tooltip">Loading oxygen saturation data...</span>
+          </span>
+        </p>
+        <span id="p${i}-ts" class="timestamp"></span>
+        <div class="chart-container">
+          <canvas id="chart-p${i}"></canvas>
+        </div>
+      `;
+      
+      container.appendChild(div);
+
+      // setup empty data for each patient
+      pulseData[i] = Array(10).fill(null);
+      pulseTimestamps[i] = Array(10).fill(null);
+
+      // initialize a Chart.js line graph for each patient
+      const ctx = document.getElementById(`chart-p${i}`).getContext('2d');
+      charts[i] = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: Array(10).fill(''),
+          datasets: [{
+            label: 'Pulse',
+            data: pulseData[i],
+            borderColor: '#ff6384',
+            backgroundColor: 'rgba(255,99,132,0.1)',
+            tension: 0.4,
+            pointRadius: 3,
+            pointBackgroundColor: '#ff6384',
+            pointHoverRadius: 5,
+            pointHoverBackgroundColor: '#ff6384',
+            borderWidth: 2,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: {
+            duration: 500
+          },
+          scales: {
+            y: {
+              suggestedMin: 40,
+              suggestedMax: 160,
+              grid: {
+                color: 'rgba(0,0,0,0.05)'
+              },
+              ticks: {
+                font: {
+                  family: "'Roboto', sans-serif",
+                  size: 10
+                }
+              }
+            },
+            x: {
+              display: false
+            }
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: { enabled: false }
+          },
+          onHover: (event, elements, chart) => {
+            const patientId = chart.canvas.id.split('-')[1];
+            
+            if (elements && elements.length) {
+              const dataIndex = elements[0].index;
+              const value = pulseData[patientId.substring(1)][dataIndex];
+              const timestamp = pulseTimestamps[patientId.substring(1)][dataIndex];
+              
+              if (value !== null && timestamp !== null) {
+                const rect = chart.canvas.getBoundingClientRect();
+                chartTooltip.style.display = 'block';
+                chartTooltip.style.left = elements[0].element.x + rect.left + 'px';
+                chartTooltip.style.top = elements[0].element.y + rect.top - 30 + 'px';
+                chartTooltip.innerHTML = `Pulse: ${value} bpm at ${formatTime(timestamp)}`;
+              }
+            } else {
+              chartTooltip.style.display = 'none';
+            }
+          }
+        }
+      });
+    }
+
+    // Simulate real-time data
+    function simulateData() {
+      const now = new Date();
+      
+      for (let i = 1; i <= 5; i++) {
+        // Simulate different patterns for different patients
+        let pulse, bp, spo2;
+        
+        switch(i) {
+          case 1:
+            pulse = Math.floor(90 + Math.sin(Date.now() / 1000) * 15);
+            bp = "134/81";
+            spo2 = 89;
+            break;
+          case 2: 
+            pulse = Math.floor(80 + Math.cos(Date.now() / 2000) * 15);
+            bp = "154/80";
+            spo2 = 97;
+            break;
+          case 3:
+            pulse = Math.floor(75 + Math.sin(Date.now() / 1500) * 20);
+            bp = "114/63";
+            spo2 = 93;
+            break;
+          case 4:
+            pulse = Math.floor(70 + Math.sin(Date.now() / 3000) * 10);
+            bp = "120/93";
+            spo2 = 92;
+            break;
+          case 5:
+            pulse = Math.floor(85 + Math.cos(Date.now() / 2500) * 10);
+            bp = "126/70";
+            spo2 = 93;
+            break;
+        }
+        
+        // Update text data and tooltips
+        const pulseEl = document.getElementById(`p${i}-pulse`);
+        const bpEl = document.getElementById(`p${i}-bp`);
+        const spo2El = document.getElementById(`p${i}-spo2`);
+        
+        pulseEl.childNodes[0].nodeValue = `${pulse} bpm`;
+        bpEl.childNodes[0].nodeValue = bp;
+        spo2El.childNodes[0].nodeValue = `${spo2}%`;
+        
+        // Update tooltips
+        pulseEl.querySelector('.tooltip').textContent = `Current: ${pulse} bpm | Normal range: ${normalRanges.pulse.min}-${normalRanges.pulse.max} bpm`;
+        
+        const [systolic, diastolic] = bp.split('/').map(Number);
+        bpEl.querySelector('.tooltip').textContent = `Systolic: ${systolic} mmHg (${normalRanges.systolic.min}-${normalRanges.systolic.max}) | Diastolic: ${diastolic} mmHg (${normalRanges.diastolic.min}-${normalRanges.diastolic.max})`;
+        
+        spo2El.querySelector('.tooltip').textContent = `Oxygen Saturation: ${spo2}% | Normal: ≥ ${normalRanges.spo2.min}%`;
+        
+        // Add alert class if needed
+        pulseEl.className = checkVitalStatus('pulse', pulse) ? 'vital-value alert' : 'vital-value normal';
+        bpEl.className = checkVitalStatus('bp', bp) ? 'vital-value alert' : 'vital-value normal';
+        spo2El.className = checkVitalStatus('spo2', spo2) ? 'vital-value alert' : 'vital-value normal';
+        
+        // Update timestamp
+        document.getElementById(`p${i}-ts`).textContent = 
+            `Last updated: ${formatTime(now)}`;
+
+        // Update chart
+        pulseData[i].shift();
+        pulseData[i].push(pulse);
+        
+        pulseTimestamps[i].shift();
+        pulseTimestamps[i].push(new Date(now));
+        
+        charts[i].data.datasets[0].data = pulseData[i];
+        charts[i].update();
+      }
+    }
+
+    // Initialize and simulate EventSource for demo purposes
+    simulateData();
+    setInterval(simulateData, 1000);
+    
+    // Add event listener to body to hide chart tooltip when mouse leaves charts
+    document.body.addEventListener('mousemove', (e) => {
+      // Check if mouse is over any chart
+      let overChart = false;
+      const chartElements = document.querySelectorAll('.chart-container');
+      
+      chartElements.forEach(chart => {
+        const rect = chart.getBoundingClientRect();
+        if (
+          e.clientX >= rect.left &&
+          e.clientX <= rect.right &&
+          e.clientY >= rect.top &&
+          e.clientY <= rect.bottom
+        ) {
+          overChart = true;
+        }
+      });
+      
+      if (!overChart) {
+        chartTooltip.style.display = 'none';
+      }
+    });
+  </script>
+</body>
+</html>

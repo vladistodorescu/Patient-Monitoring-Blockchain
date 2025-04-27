@@ -4,9 +4,12 @@ import queue
 import random
 import threading
 import time
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from flask import Flask, Response, render_template, jsonify
-from DatabaseAppPMB import get_db, close_db, init_db
+from Database.DatabaseAppPMB import get_db, close_db, init_db
 from DeviceAPI import init_app
 from Broadcaster import broadcaster    # the shared EventBroadcaster instance
 
