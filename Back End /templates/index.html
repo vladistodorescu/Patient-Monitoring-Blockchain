@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Live Patient Vitals</title>
+  <style>
+    body { font-family: Arial, sans-serif; }
+    .patient { border: 1px solid #ccc; margin: 0.5em; padding: 0.5em; width: 160px; display: inline-block;}
+    .patient h2 { margin: 0; font-size: 1.2em; }
+  </style>
+</head>
+<body>
+  <h1>Real-Time Patient Vitals</h1>
+  <div id="patients"></div>
+
+  <script>
+    // build placeholders for 5 patients
+    const container = document.getElementById('patients');
+    for(let i=1;i<=5;i++){
+      const div = document.createElement('div');
+      div.className = 'patient';
+      div.id = `p${i}`;
+      div.innerHTML = `
+        <h2>Patient ${i}</h2>
+        <p>Pulse: <span id="p${i}-pulse">--</span> bpm</p>
+        <p>BP:    <span id="p${i}-bp">--/--</span></p>
+        <p>SpO₂:  <span id="p${i}-spo2">--</span>%</p>
+        <small><span id="p${i}-ts"></span></small>
+      `;
+      container.appendChild(div);
+    }
+
+    // connect to SSE stream
+    const source = new EventSource('/stream');
+    source.onmessage = e => {
+      const d = JSON.parse(e.data);
+      document.getElementById(`p${d.id}-pulse`).textContent = d.pulse;
+      document.getElementById(`p${d.id}-bp`).textContent    = d.bp;
+      document.getElementById(`p${d.id}-spo2`).textContent  = d.spo2;
+      document.getElementById(`p${d.id}-ts`).textContent    =
+        new Date(d.timestamp).toLocaleTimeString();
+    };
+    source.onerror = err => console.error('SSE error', err);
+  </script>
+</body>
+</html>
