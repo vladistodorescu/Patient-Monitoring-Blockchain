@@ -25,6 +25,7 @@
       padding: 20px;
       background-color: var(--background-light);
       color: var(--text-primary);
+      
     }
     
     h1 {
@@ -170,6 +171,13 @@
   </style>
 </head>
 <body>
+  <div style="text-align: right; padding-bottom: 10px;">
+    {% if not logged_in %}
+      <a href="{{ url_for('login') }}" style="text-decoration:none; background:#3498db; color:white; padding:6px 12px; border-radius:5px;">🔐 Log In</a>
+    {% else %}
+      <a href="{{ url_for('logout') }}" style="text-decoration:none; background:#e74c3c; color:white; padding:6px 12px; border-radius:5px;">🚪 Log Out</a>
+    {% endif %}
+  </div>
   <h1>Real-Time Patient Vitals</h1>
   <div id="patients"></div>
   

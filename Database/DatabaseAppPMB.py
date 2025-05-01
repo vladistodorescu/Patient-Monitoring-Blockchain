@@ -5,10 +5,9 @@ import psycopg2.extras
 from flask import g
 
 # connection string
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://admin:YourVeryStrongPassword@localhost:5433/v3db"
-)
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://admin:YourVeryStrongPassword@db:5432/v3db")
+
+
 
 def get_db():
     """Returns a psycopg2 connection, stored in Flask's `g`."""
