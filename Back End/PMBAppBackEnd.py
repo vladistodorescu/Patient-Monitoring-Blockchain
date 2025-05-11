@@ -24,14 +24,32 @@ app = Flask(__name__)
 app.config.update(
     SECRET_KEY=os.getenv('SECRET_KEY', secrets.token_hex(32)),
     SESSION_TYPE='filesystem',
-    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_SECURE=os.getenv('USE_HTTPS', 'False').lower() == 'true',
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
-    PERMANENT_SESSION_LIFETIME=2592000  # 30 days in seconds
+    PERMANENT_SESSION_LIFETIME=int(os.getenv('REFRESH_TOKEN_TTL', '2592000'))  # 30 days in seconds
 )
 Session(app)
 
 app.teardown_appcontext(close_db)
+
+# Add debugging route to check environment variables
+@app.route('/debug/env')
+def debug_env():
+    if app.config.get('FLASK_ENV') != 'development':
+        return jsonify({"error": "Debug endpoints only available in development"}), 403
+        
+    # Only return non-sensitive env vars
+    safe_vars = {
+        "AUTH_SERVER_URL": os.getenv("AUTH_SERVER_URL"),
+        "AUTH_SERVER_URL_PUBLIC": os.getenv("AUTH_SERVER_URL_PUBLIC"),
+        "REDIRECT_URI": os.getenv("REDIRECT_URI"),
+        "APP_URL": os.getenv("APP_URL"),
+        "FLASK_ENV": os.getenv("FLASK_ENV"),
+        "API_AUDIENCE": os.getenv("API_AUDIENCE"),
+        "CLIENT_ID": os.getenv("WEB_APP_CLIENT_ID")
+    }
+    return jsonify(safe_vars)
 
 # 1) Initialize auth endpoints
 init_auth_endpoints(app)
@@ -78,25 +96,45 @@ def get_vitals():
         rows = cur.fetchall()
     return jsonify(rows)
 
-# 5) Dashboard page
+# 5) Public Landing Page or Dashboard depending on login
 @app.route('/')
 def index():
-    # Simple login status check
     logged_in = 'access_token' in session
-    return render_template('index.html', logged_in=logged_in)
+    if logged_in:
+        return render_template('dashboard.html', logged_in=logged_in)
+    else:
+        return render_template('landing.html')
 
-# 6) Simulator to generate data if no real devices are hooked up
+# 6) Protected Dashboard Route
+@app.route('/dashboard')
+def dashboard():
+    logged_in = 'access_token' in session
+    if logged_in:
+        return render_template('dashboard.html', logged_in=True)
+    else:
+        return redirect(url_for('login'))
+
+# 7) Optional Redirect Helper
+@app.route('/vitals-monitor')
+def vitals_monitor():
+    logged_in = 'access_token' in session
+    if logged_in:
+        return redirect(url_for('dashboard'))
+    else:
+        return redirect(url_for('login'))
+
+# 8) Simulator to generate data if no real devices are hooked up
 def simulate_loop():
     from auth import get_client_credentials_token
     
     # Get client credentials token for simulator
-    client_id = os.getenv("SIMULATOR_CLIENT_ID", "backend-simulator")
-    client_secret = os.getenv("SIMULATOR_CLIENT_SECRET", "backend-simulator-secret")
+    client_id = os.getenv("MQTT_SIMULATOR_CLIENT_ID", "patient-monitor-simulator")
+    client_secret = os.getenv("MQTT_SIMULATOR_CLIENT_SECRET", "simulator-secret")
     
     token, error = get_client_credentials_token(
         client_id, 
         client_secret, 
-        "write:vitals"
+        "mqtt:publish write:vitals"
     )
     
     if error:
@@ -124,8 +162,8 @@ def simulate_loop():
                         ts = cur.fetchone()['timestamp']
                 
                 # Store auth information for blockchain audit trail
-                user_id = 'backend-simulator'
-                client_id = 'backend-simulator'
+                user_id = 'simulator'
+                client_id = client_id
                 
                 # Add to blockchain with auth info
                 from DeviceAPI import blockchain
@@ -138,7 +176,7 @@ def simulate_loop():
                     "auth": {
                         "user_id": user_id,
                         "client_id": client_id,
-                        "token": token[:20] + "..." if token else "none"  # Just store part of token for reference
+                        "token": token[:20] + "..." if token else "none"
                     }
                 })
                 
@@ -163,8 +201,8 @@ if __name__ == '__main__':
     
     # Enable HTTPS in production
     context = None
-    if os.getenv('FLASK_ENV') == 'production':
+    if os.getenv('USE_HTTPS', 'False').lower() == 'true':
         context = ('cert.pem', 'key.pem')
     
     # Run on port 8080, listening on all interfaces
-    app.run(host='0.0.0.0', port=8080, ssl_context=context)
+    app.run(host='0.0.0.0', port=8080, ssl_context=context, debug=os.getenv('FLASK_ENV') == 'development')

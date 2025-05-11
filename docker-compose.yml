@@ -102,7 +102,7 @@
         AUTH_SERVER_URL: http://auth-server:8080/realms/pmb
         JWKS_URI: http://auth-server:8080/realms/pmb/protocol/openid-connect/certs
         TOKEN_ENDPOINT: http://auth-server:8080/realms/pmb/protocol/openid-connect/token
-        AUTHORIZATION_ENDPOINT: http://auth-server:8080/realms/pmb/protocol/openid-connect/auth
+        #AUTHORIZATION_ENDPOINT: http://auth-server:8080/realms/pmb/protocol/openid-connect/auth
         TOKEN_ISSUER: http://auth-server:8080/realms/pmb
         API_AUDIENCE: https://patientmonitor.api
         REDIRECT_URI: http://localhost:8080/callback
