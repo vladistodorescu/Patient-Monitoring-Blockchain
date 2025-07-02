@@ -1,66 +1,50 @@
-import hashlib
+# Back End/Blockchain.py
 import json
-import time
+import os
+import asyncio
+from dotenv import load_dotenv 
+from hfc.fabric import Client
 
-class Block:
-    def __init__(self, index, timestamp, data, previous_hash):
-        self.index = index
-        self.timestamp = timestamp
-        self.data = data
-        self.previous_hash = previous_hash
-        self.hash = self.calculate_hash()
+load_dotenv()
 
-    def calculate_hash(self):
-        block_string = json.dumps({
-            'index': self.index,
-            'timestamp': self.timestamp,
-            'data': self.data,
-            'previous_hash': self.previous_hash
-        }, sort_keys=True).encode()
-
-        return hashlib.sha256(block_string).hexdigest()
-
-class Blockchain:
+class FabricClient:
     def __init__(self):
-        self.chain = [self.create_genesis_block()]
+        # 1) Read JSON Connection
+        cfg_path = os.getenv('FABRIC_NETWORK_CONFIG')
+        with open(cfg_path, 'r') as f:
+            conn_profile = json.load(f)
+            
+        # 2) Pull out exactly what you need 
+        self.channel = os.getenv('FABRIC_CHANNEL_NAME', 'mychannel')
+        self.cc_name = os.getenv('FABRIC_CHAINCODE_NAME')
+        org = os.getenv('FABRIC_ORG')
+        user = os.getenv('FABRIC_USER')
+        self.peers = conn_profile['organizations'][org]['peers']
+        
+        # 3) Then initialize the SDK as before (it will re-re-load the same file)
+        self.client = Client(net_profile=cfg_path)
+        self.client.new_channel(self.channel)
+        self.user = self.client.get_user(org, user)
+        
 
-    def create_genesis_block(self):
-        return Block(0, time.time(), "Genesis Block", "0")
-
-    def get_latest_block(self):
-        return self.chain[-1]
-
-    def add_block(self, data):
-        latest_block = self.get_latest_block()
-        new_block = Block(
-            index=latest_block.index + 1,
-            timestamp=time.time(),
-            data=data,
-            previous_hash=latest_block.hash
+    def _invoke(self, fcn, args):
+        return self.client.chaincode_invoke(
+            requestor=self.user,
+            channel_name=self.channel,
+            peers=self.peers,
+            cc_name=self.cc_name,
+            fcn=fcn,
+            args=args,
+            wait_for_event=True
         )
-        self.chain.append(new_block)
 
-    def is_chain_valid(self):
-        for i in range(1, len(self.chain)):
-            current = self.chain[i]
-            previous = self.chain[i-1]
+    def record_vitals(self, patient_id, pulse, bp, spo2, timestamp):
+        """
+        Submits a RecordVitals transaction to the Fabric network.
+        """
+        args = [str(patient_id), str(pulse), bp, str(spo2), timestamp]
+        return self._invoke('RecordVitals', args)
+        
 
-            if current.hash != current.calculate_hash():
-                return False
-
-            if current.previous_hash != previous.hash:
-                return False
-
-        return True
-
-    def to_dict(self):
-        return [
-            {
-                'index': block.index,
-                'timestamp': block.timestamp,
-                'data': block.data,
-                'previous_hash': block.previous_hash,
-                'hash': block.hash
-            }
-            for block in self.chain
-        ]
+# Expose a singleton for easy import
+blockchain = FabricClient()
