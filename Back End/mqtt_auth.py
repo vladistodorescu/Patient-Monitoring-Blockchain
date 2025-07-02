@@ -5,8 +5,12 @@ This module provides JWT authentication for MQTT connections.
 """
 
 import json
+import os
 import paho.mqtt.client as mqtt
 from auth import verify_token
+from dotenv import load_dotenv 
+
+load_dotenv()
 
 class MQTTAuthClient(mqtt.Client):
     """
@@ -87,6 +91,10 @@ def start_mqtt_with_auth(broker, port, access_token, on_connect, on_message):
     client = MQTTAuthClient(access_token)
     client.on_connect = on_connect
     client.on_message = on_message
+    
+    user = os.getenv("MQTT_SIMULATOR_CLIENT_ID")
+    pw   = os.getenv("MQTT_SIMULATOR_CLIENT_SECRET")
+    client.username_pw_set(user, pw)
     
     client.connect(broker, port)
     client.loop_start()
