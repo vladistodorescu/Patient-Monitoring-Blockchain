@@ -58,3 +58,4 @@ export DATABASE_URL="postgresql://admin:adminPassword@localhost:${PGPORT}/v3db"
 
 # Replace exec here so this script hands over to Python process
 exec python3 BackendAppPMB.py
+
