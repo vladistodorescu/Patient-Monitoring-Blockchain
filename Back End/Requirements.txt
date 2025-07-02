@@ -5,3 +5,13 @@ Flask-Session
 python-dotenv
 requests
 python-jose
+fastapi
+uvicorn[standard]>=0.18.0
+grpcio
+grpcio-tools
+protobuf==3.20.3
+cryptography
+pytest
+pytest-asyncio
+fabric-sdk-py
+PyYAML
