@@ -9,17 +9,19 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+MAX_CYCLES = 50
+
 # Environment variables from docker-compose.yml or .env
-MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
+MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 NUM_PATIENTS = int(os.getenv("NUM_PATIENTS", "5"))
 PUBLISH_INTERVAL = int(os.getenv("PUBLISH_INTERVAL", "5"))  # seconds
 
 # Authentication settings
-AUTH_SERVER_URL = os.getenv("AUTH_SERVER_URL", "http://localhost:8888/realms/pmb")
+AUTH_SERVER_URL = os.getenv("AUTH_SERVER_URL", "http://keycloak:8080/realms/pmb")
 TOKEN_ENDPOINT = os.getenv("TOKEN_ENDPOINT", f"{AUTH_SERVER_URL}/protocol/openid-connect/token")
-CLIENT_ID = os.getenv("MQTT_SIMULATOR_CLIENT_ID", "patient-monitor-mqtt")
-CLIENT_SECRET = os.getenv("MQTT_SIMULATOR_CLIENT_SECRET", "fbLqxUc4I2zWD2yAo8e1MkmnUXARnxHw")
+CLIENT_ID = os.getenv("MQTT_SIMULATOR_CLIENT_ID")
+CLIENT_SECRET = os.getenv("MQTT_SIMULATOR_CLIENT_SECRET")
 TOKEN_REFRESH_INTERVAL = 600  # 10 minutes
 
 # Global token storage
@@ -85,6 +87,10 @@ def connect_with_retries(client, broker, port, max_retries=10, delay=5):
             else:
                 print("⚠️ No token available, connecting without authentication")
                 # Try anonymous connection as fallback
+                
+            user = os.getenv("MQTT_SIMULATOR_CLIENT_ID")
+            pw   = os.getenv("MQTT_SIMULATOR_CLIENT_SECRET")
+            client.username_pw_set(user, pw)
             
             client.connect(broker, port)
             print(f"✅ Connected to MQTT broker at {broker}:{port}")
@@ -102,7 +108,9 @@ def publish_vitals(client):
     """
     last_token_refresh = time.time()
     
-    while True:
+    count = 0
+    
+    while count < MAX_CYCLES:
         # Check if we need to refresh the token
         if time.time() - last_token_refresh > TOKEN_REFRESH_INTERVAL:
             token = get_token()
@@ -165,6 +173,7 @@ def publish_vitals(client):
                 print(f"📤 Published to {topic}: {vitals_data}")
             except Exception as e:
                 print(f"❌ Failed to publish: {e}")
+        count += 1
         
         time.sleep(PUBLISH_INTERVAL)
 
